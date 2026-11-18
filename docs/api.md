@@ -398,7 +398,7 @@ Its prices ship in its jar at `data/questcoins/market/questcoins.json`, as in [P
 
 The market's API changes. Core's are in [core's add-on guide](https://github.com/The-Azotus/variable-economy-core/blob/main/docs/api.md).
 
-- **0.6.1 (unreleased):** the market is its own repository and release; nothing in its API changed. `gradlew publishToMavenLocal` in this repository publishes it as `variableeconomy:market:<version>`, and its artifact names no dependencies: declare core yourself.
+- **0.6.1 (2026-11-17):** the market is its own repository and release; nothing in its API changed. `gradlew publishToMavenLocal` in this repository publishes it as `variableeconomy:market:<version>`, and its artifact names no dependencies: declare core yourself.
 
 - **0.6.0 (2026-11-14):** breaks every add-on. The mod is renamed from Dynamic-Economy to Variable Economy, split into four mods, and its API is replaced.
   - The market is a separate optional mod, `variable_economy_market`, on top of core (`variable_economy`). Check its mod ID before using its package.
