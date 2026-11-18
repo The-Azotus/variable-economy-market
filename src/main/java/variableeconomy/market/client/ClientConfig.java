@@ -1,0 +1,26 @@
+package variableeconomy.market.client;
+
+import net.neoforged.neoforge.common.ModConfigSpec;
+
+/** Per-player settings, in {@code config/variable_economy_market-client.toml}. */
+public final class ClientConfig {
+    /** The config's file name. */
+    public static final String FILE = "variable_economy_market-client.toml";
+    public static final ModConfigSpec SPEC;
+    public static final ModConfigSpec.BooleanValue SHOW_SELL_PRICE;
+
+    static {
+        ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
+        SHOW_SELL_PRICE = builder
+                .comment("Show an item's market value in its tooltip, wherever the item appears.")
+                .define("show_sell_price_in_tooltips", true);
+        SPEC = builder.build();
+    }
+
+    private ClientConfig() {
+    }
+
+    public static boolean showSellPrice() {
+        return !SPEC.isLoaded() || SHOW_SELL_PRICE.get();
+    }
+}

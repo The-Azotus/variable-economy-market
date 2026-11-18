@@ -1,0 +1,7 @@
+# The one lock the GameTests check through ProgressiveStages itself: the dragon egg, which no test trades.
+[[rules]]
+id = "variable_economy_test:gametest/dragon_egg"
+effect = "lock"
+action = "use"
+priority = 100
+targets.items = ["minecraft:dragon_egg"]

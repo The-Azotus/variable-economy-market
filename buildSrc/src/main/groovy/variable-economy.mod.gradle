@@ -1,0 +1,463 @@
+// The build of one Variable Economy mod: core, market, contracts or exchange. Each mod's repository holds this same
+// file; gradle.properties says which mod it is (module, mod_id, mod_name, mod_version) and which mods it builds
+// against. It sets up NeoForge and Java 21, the optional mods, mods.toml from src/main/templates, the GameTests (their
+// own source set, never in the released jar), the module boundary check, the javadoc and the publication.
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev'
+    id 'idea'
+    id 'maven-publish'
+}
+
+def thisModule = property('module').toString()
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    // Published next to the mod jar for add-on authors. The javadoc covers only the module's API (below).
+    withSourcesJar()
+    withJavadocJar()
+}
+
+// For mods the dev runs load but the published POM must not name: add-ons would otherwise inherit them as runtime
+// dependencies, from repositories they may not have. Runs use runtimeClasspath, so they still get them.
+configurations {
+    localRuntime
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+// `-PwithoutMods=create`, `ftbteams`, `progressivestages` or `kubejs` (comma-separated for several, `all` for every one)
+// leaves those optional mods out of every run (the code is still compiled against them), to test the mod without
+// them. Such runs get their own test world, named after what was asked for.
+def knownOptionalMods = ['create', 'ftbteams', 'progressivestages', 'kubejs']
+def withoutModsAsked = (findProperty('withoutMods') ?: '').toString().split(',').collect { it.trim() }.findAll { it } as Set
+def unknownMods = withoutModsAsked - knownOptionalMods - ['all']
+if (!unknownMods.isEmpty()) {
+    throw new GradleException("-PwithoutMods: unknown ${unknownMods.join(', ')}; use ${knownOptionalMods.join(', ')} or all")
+}
+def withoutMods = withoutModsAsked.contains('all') ? knownOptionalMods as Set : withoutModsAsked
+
+repositories {
+    // Create, Ponder, Flywheel
+    maven {
+        url = 'https://maven.createmod.net'
+        content {
+            includeGroup 'com.simibubi.create'
+            includeGroup 'net.createmod.ponder'
+            includeGroup 'dev.engine-room.flywheel'
+        }
+    }
+    // Registrate
+    maven {
+        url = 'https://mvn.devos.one/snapshots'
+        content { includeGroup 'com.tterrag.registrate' }
+    }
+    // FTB Teams, FTB Library
+    maven {
+        url = 'https://maven.ftb.dev/releases'
+        content { includeGroup 'dev.ftb.mods' }
+    }
+    // Architectury, which FTB Teams needs
+    maven {
+        url = 'https://maven.architectury.dev'
+        content { includeGroup 'dev.architectury' }
+    }
+    // KubeJS, Rhino
+    maven {
+        url = 'https://maven.latvian.dev/releases'
+        content { includeGroup 'dev.latvian.mods' }
+    }
+    // ProgressiveStages
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+    // The released Variable Economy mods an add-on builds against (see economyMod below)
+    exclusiveContent {
+        forRepository { maven { url = 'https://cursemaven.com' } }
+        filter { includeGroup 'curse.maven' }
+    }
+    // ...or the ones `gradlew publishToMavenLocal` published from their repositories
+    mavenLocal {
+        content { includeGroup mod_group_id }
+    }
+}
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+}
+
+// The optional mods. Create's POM pulls in many optional runtime mods (JEI, FTB...), so take the slim jar without
+// transitives and add the libraries it bundles; FTB Library and Architectury are what FTB Teams itself needs.
+def optionalMods = [
+        create  : ["com.simibubi.create:create-${minecraft_version}:${create_version}:slim",
+                   "net.createmod.ponder:ponder-neoforge:${ponder_version}",
+                   "dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}",
+                   "com.tterrag.registrate:Registrate:${registrate_version}"],
+        ftbteams: ["dev.ftb.mods:ftb-teams-neoforge:${ftbteams_version}",
+                   "dev.ftb.mods:ftb-library-neoforge:${ftblibrary_version}",
+                   "dev.architectury:architectury-neoforge:${architectury_version}"],
+        progressivestages: ["maven.modrinth:progressivestages:${progressivestages_version}"],
+        kubejs  : ["dev.latvian.mods:kubejs-neoforge:${kubejs_version}",
+                   "dev.latvian.mods:rhino:${rhino_version}"],
+]
+
+/** Compiles against an optional mod; only its bridge class may touch it. */
+ext.compileAgainst = { String mod ->
+    optionalMods[mod].each { dependencies.add('compileOnly', it) { transitive = false } }
+}
+
+/** Loads an optional mod in the runs, unless `-PwithoutMods` leaves it out. */
+ext.runWith = { String mod ->
+    if (!withoutMods.contains(mod)) {
+        optionalMods[mod].each { dependencies.add('localRuntime', it) { transitive = false } }
+    }
+}
+
+/**
+ * Another Variable Economy mod this one builds against (`core`, or `market` for contracts), at `<name>_version` from
+ * gradle.properties. `<name>_source` says where it comes from: `curseforge`, the released jar through CurseMaven
+ * (`<name>_curseforge_slug`, `_project` and `_file`), or `local`, `variableeconomy:<name>:<version>` as
+ * `gradlew publishToMavenLocal` publishes it from that mod's repository. `-P<name>_source=local` overrides it.
+ */
+ext.economyMod = { String name ->
+    String source = findProperty("${name}_source") ?: 'curseforge'
+    String modVersion = property("${name}_version")
+    if (source == 'local') {
+        return "${mod_group_id}:${name}:${modVersion}".toString()
+    }
+    if (source != 'curseforge') {
+        throw new GradleException("-P${name}_source=${source}: use curseforge or local")
+    }
+    String file = findProperty("${name}_curseforge_file") ?: ''
+    String projectId = findProperty("${name}_curseforge_project") ?: ''
+    if (!file || !projectId) {
+        throw new GradleException("${name} isn't on CurseForge yet (${name}_curseforge_project and _file are empty): " +
+                "run `gradlew publishToMavenLocal` in variable-economy-${name}, then build this with -P${name}_source=local")
+    }
+    "curse.maven:${property("${name}_curseforge_slug")}-${projectId}:${file}".toString()
+}
+
+// The GameTests: their own source set (src/gametest), never in the released jar. The mod is made of both source sets,
+// so the test classes are part of it when a run loads it, and `@GameTestHolder` finds them. Tests may reach into the
+// internals of this mod and of core (the boundary check below), whose jar holds them.
+sourceSets {
+    gametest
+}
+configurations {
+    gametestImplementation.extendsFrom implementation
+    gametestRuntimeClasspath.extendsFrom localRuntime
+}
+dependencies {
+    gametestImplementation sourceSets.main.output
+}
+neoForge.addModdingDependenciesTo(sourceSets.gametest)
+
+neoForge {
+    mods {
+        register(mod_id) {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.gametest
+        }
+    }
+}
+
+/**
+ * The folder a run keeps its world in, with another for each `-PwithoutMods` choice: `run`, `run-gametest`, or
+ * `run-gametest-without-<mods>`.
+ */
+ext.runFolder = { String base ->
+    file(withoutModsAsked ? base + '-without-' + withoutModsAsked.sort().join('-') : base)
+}
+
+// The mods of ours a GameTest run loads: core, and this mod if it isn't core.
+def ourMods = (['variable_economy', mod_id.toString()] as LinkedHashSet) as List
+
+neoForge {
+    runs {
+        configureEach { run ->
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            // `-PdebugLog` for debug output, e.g. the packets a client receives.
+            logLevel = project.hasProperty('debugLog') ? org.slf4j.event.Level.DEBUG : org.slf4j.event.Level.INFO
+        }
+        // `gradlew runClient` and `runServer`: a dev client and server with this mod (and what it builds against).
+        client {
+            client()
+            gameDirectory = file('run')
+        }
+        server {
+            server()
+            gameDirectory = file('run/server')
+            programArgument '--nogui'
+        }
+        // `gradlew runGameTestServer`: runs every GameTest of the mods of ours it loads, then exits; its log is checked
+        // afterwards (checkGameTestLog). Tests use the small example catalog, not the built-in prices.
+        gameTestServer {
+            type = 'gameTestServer'
+            sourceSet = sourceSets.gametest
+            gameDirectory = runFolder('run-gametest')
+            systemProperty 'neoforge.enabledGameTestNamespaces', ourMods.join(',')
+            systemProperty 'variableeconomy.skipDefaultPrices', 'true'
+        }
+    }
+}
+
+// The GameTest world's config folder starts from src/gametest/config (ProgressiveStages' test stage), copied in before
+// every run so the tests never depend on what another mod generates on its own.
+def gameTestFolder = runFolder('run-gametest')
+def gameTestSeed = file('src/gametest/config')
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    def config = new File(gameTestFolder, 'config')
+    doFirst {
+        if (gameTestSeed.isDirectory()) {
+            gameTestSeed.eachFileRecurse(groovy.io.FileType.FILES) { File source ->
+                def target = new File(config, gameTestSeed.toPath().relativize(source.toPath()).toString())
+                target.parentFile.mkdirs()
+                target.bytes = source.bytes
+            }
+        }
+    }
+    finalizedBy 'checkGameTestLog'
+}
+
+// "Loads cleanly": the GameTest server must load exactly the mods of ours it names, and its log, up to its first test
+// batch (warnings the tests provoke on purpose come later), may hold no ERROR and no WARN from our own code (loggers
+// under `variableeconomy.`), except the entries listed here, each with why. Warnings from other mods and Minecraft are
+// listed in the report, not failed on.
+def allowedAtStart = [
+        // A GameTest server never writes server.properties, so vanilla logs this on every start.
+        [logger: 'net.minecraft.server.dedicated.Settings', message: 'Failed to load properties from file: server.properties'],
+]
+tasks.register('checkGameTestLog') {
+    group = 'verification'
+    description = 'Fails if the GameTest server logged an error, or a warning from our code, before its tests began.'
+    def log = new File(gameTestFolder, 'logs/latest.log')
+    def expectedMods = ourMods.sort()
+    def allowed = allowedAtStart
+    def reportFile = layout.buildDirectory.file('reports/gameTestLog.txt')
+    outputs.upToDateWhen { false }
+    doLast {
+        def entry = ~/^\[[^\]]+\] \[([^\]]*)\/([A-Z]+)\] \[([^\]\/]*)\/?[^\]]*\]: (.*)$/
+        def problems = []
+        def report = []
+        if (!log.isFile()) {
+            throw new GradleException("No GameTest log at ${log}")
+        }
+        def lines = log.readLines('UTF-8')
+        int start = lines.findIndexOf { it.contains('Running test batch') }
+        if (start < 0) {
+            throw new GradleException("The GameTests never started (${log})")
+        }
+        // FML lists the mods it found, one to a line, as "<tab><name> <version> (<mod id>)".
+        def loaded = lines.subList(0, start).collect { (it =~ /^\t+.* \((variable_economy\w*)\)$/) }
+                .findAll { it.matches() }.collect { it.group(1) }.unique().sort()
+        if (loaded != expectedMods) {
+            problems << "loaded ${loaded}, but should load ${expectedMods}"
+        }
+        def others = []
+        lines.subList(0, start).each { String line ->
+            def m = entry.matcher(line)
+            if (!m.matches()) {
+                return // a stack trace or a wrapped message, part of the entry above
+            }
+            String level = m.group(2), logger = m.group(3), message = m.group(4)
+            boolean ours = logger.startsWith('variableeconomy.')
+            boolean ok = allowed.any { logger == it.logger && message.startsWith(it.message) }
+            if (!ok && (level == 'ERROR' || level == 'FATAL' || (level == 'WARN' && ours))) {
+                problems << line
+            } else if (!ok && level == 'WARN') {
+                others << line
+            }
+        }
+        def result = lines.find { it.contains('required tests passed') || it.contains('required tests failed') }
+        report << "${result ? result.replaceFirst(/^.*\]: /, '') : 'no test result'}; ${others.size()} warnings at " +
+                "start from other mods"
+        others.each { report << "    ${it}" }
+        def out = reportFile.get().asFile
+        out.parentFile.mkdirs()
+        out.text = (report + (problems ? ['', 'Problems:'] + problems : [])).join(System.lineSeparator())
+        println "GameTest log: ${report[0]} (details in ${out})"
+        if (!problems.isEmpty()) {
+            throw new GradleException("The GameTest server didn't start cleanly:\n  " + problems.join('\n  '))
+        }
+    }
+}
+
+// mods.toml, filled in from gradle.properties. An add-on requires core from the version it's built against up to the
+// next minor version: before 1.0 a minor release of core may change the API. Contracts' optional market dependency
+// works the same way.
+def rangeFrom = { String v ->
+    def (major, minor) = v.tokenize('.')
+    "[${v},${major}.${(minor as int) + 1})".toString()
+}
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    var replaceProperties = [
+            minecraft_version              : minecraft_version,
+            minecraft_version_range        : minecraft_version_range,
+            neo_version                    : neo_version,
+            loader_version_range           : loader_version_range,
+            create_version_range           : create_version_range,
+            progressivestages_version_range: progressivestages_version_range,
+            ftbteams_version_range         : ftbteams_version_range,
+            kubejs_version_range           : kubejs_version_range,
+            core_version_range             : rangeFrom((findProperty('core_version') ?: mod_version).toString()),
+            market_version_range           : rangeFrom((findProperty('market_version') ?: mod_version).toString()),
+            mod_id                         : mod_id,
+            mod_name                       : mod_name,
+            mod_license                    : mod_license,
+            mod_version                    : mod_version,
+            repo_url                       : repo_url,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from 'src/main/templates'
+    into layout.buildDirectory.dir('generated/sources/modMetadata')
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// A mod uses another only through its api package. This check reads the sources (imports and fully qualified names;
+// comments and strings left out) and fails on anything else:
+//   every file            under variableeconomy/<module>/
+//   core's main code      only core
+//   an api package        only its own api package and core's api
+//   an add-on's main code itself and core's api, plus the exceptions its build.gradle lists in boundaryExceptions
+//   the GameTests         core and this mod, internals included (tests reach into what they test)
+ext.boundaryExceptions = [:]
+def checkModuleBoundaries = tasks.register('checkModuleBoundaries') {
+    group = 'verification'
+    description = 'Fails if this mod uses another mod other than through its api package.'
+    def roots = ['main', 'gametest'].collectEntries { [(it): file("src/${it}/java").absolutePath] }
+    def sources = files(roots.values().collect { fileTree(it) { include '**/*.java' } })
+    inputs.files(sources)
+    def marker = layout.buildDirectory.file('checkModuleBoundaries.ok')
+    outputs.file(marker)
+    def exceptions = boundaryExceptions
+    doLast {
+        def problems = []
+        roots.each { String set, String rootPath ->
+            def root = java.nio.file.Paths.get(rootPath)
+            if (!root.toFile().isDirectory()) {
+                return
+            }
+            root.toFile().eachFileRecurse(groovy.io.FileType.FILES) { File f ->
+                if (!f.name.endsWith('.java')) {
+                    return
+                }
+                def parts = root.relativize(f.toPath()).toString().replace('\\', '/').split('/')
+                String path = parts.join('/')
+                boolean test = set == 'gametest'
+                if (parts.length < 3 || parts[0] != 'variableeconomy' || parts[1] != thisModule
+                        || (test && parts[2] != 'gametest') || (!test && parts[2] == 'gametest')) {
+                    problems << "src/${set}/java/${path}: outside the ${thisModule} mod's ${test ? 'gametest ' : ''}package"
+                    return
+                }
+                boolean api = parts.length > 3 && parts[2] == 'api'
+                def allowed = test ? ['variableeconomy.core.', "variableeconomy.${thisModule}.".toString()]
+                        : api ? ["variableeconomy.${thisModule}.api.".toString(), 'variableeconomy.core.api.']
+                        : thisModule == 'core' ? ['variableeconomy.core.']
+                        : ["variableeconomy.${thisModule}.".toString(), 'variableeconomy.core.api.']
+                if (!test) {
+                    allowed += (exceptions[path] ?: [])
+                }
+                def code = f.getText('UTF-8')
+                        .replaceAll(/(?s)\/\*.*?\*\//, '')
+                        .replaceAll(/\/\/[^\n]*/, '')
+                        .replaceAll(/"(?:\\.|[^"\\])*"/, '""')
+                        .replaceAll(/(?m)^package [\w.]+;/, '')
+                (code =~ /\bvariableeconomy(?:\.[A-Za-z_]\w*)+/).each { String ref ->
+                    if (!allowed.any { (ref + '.').startsWith(it) }) {
+                        problems << "src/${set}/java/${path}: ${ref}"
+                    }
+                }
+            }
+        }
+        if (!problems.isEmpty()) {
+            throw new GradleException("Module boundary crossed (use the api packages):\n  " + problems.unique().sort().join('\n  '))
+        }
+        marker.get().asFile.text = 'ok'
+    }
+}
+tasks.named('check') { dependsOn checkModuleBoundaries }
+
+// The javadoc jar documents only the mod's API; everything else is internal and may change in any release. The rest
+// of the code is still on the classpath, so links to it resolve. Doclint stays on (broken HTML or links fail the
+// build) except for missing comments.
+tasks.named('javadoc', Javadoc) {
+    include "variableeconomy/${thisModule}/api/**"
+    title = "${mod_name} ${mod_version} API"
+    options.encoding = 'UTF-8'
+    options.addBooleanOption('Xdoclint:all,-missing', true)
+}
+
+// `gradlew publishToMavenLocal` publishes variableeconomy:<module>:<mod_version> with a sources and a javadoc jar, so
+// an add-on can build against this mod from source. The POM names no dependencies: an add-on declares core itself.
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            from components.java
+            groupId = mod_group_id
+            artifactId = thisModule
+            version = mod_version
+            pom {
+                name = mod_name
+                // Read when the POM is written: build.gradle sets the description after this plugin is applied.
+                description = providers.provider { project.description }
+                url = repo_url
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = "${repo_url}/blob/main/LICENSE".toString()
+                    }
+                }
+                scm {
+                    url = repo_url
+                    connection = "scm:git:${repo_url}.git".toString()
+                }
+            }
+        }
+    }
+}
+
+// For a build that includes this one (a Gradle composite) and runs the mods together: the mod with its GameTests, as
+// one jar, under the capability variableeconomy:<module>-gametest. Never published.
+def gametestJar = tasks.register('gametestJar', Jar) {
+    archiveClassifier = 'gametest'
+    from sourceSets.main.output
+    from sourceSets.gametest.output
+}
+configurations.consumable('gametestModElements') {
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category, Category.LIBRARY))
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, LibraryElements.JAR))
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling, Bundling.EXTERNAL))
+        attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+    }
+    outgoing {
+        capability("${mod_group_id}:${thisModule}-gametest:${mod_version}")
+        artifact(gametestJar)
+    }
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

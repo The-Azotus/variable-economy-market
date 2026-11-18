@@ -1,0 +1,28 @@
+// Variable Economy: Market (mod id variable_economy_market): a server-owned market whose prices move with supply and
+// demand, its catalog, prices and stock, and the item valuation API. The build itself is in buildSrc
+// (variable-economy.mod.gradle).
+plugins {
+    id 'variable-economy.mod'
+}
+
+description = 'Variable Economy: Market: a server-owned market whose prices move with supply and demand. ' +
+        'Add-ons use the variableeconomy.market.api package.'
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+dependencies {
+    // Core, which the market requires (gradle.properties says which core and where it comes from). The main code may
+    // use only core's api package; the GameTests may reach into core's internals too.
+    compileOnly economyMod('core')
+    gametestImplementation economyMod('core')
+    localRuntime economyMod('core')
+    // Optional: only compat/CreateRecipes touches Create, and only when it is loaded.
+    compileAgainst('create')
+    runWith('create')
+    // Core's optional mods, so the market is tested with them (and without them by -PwithoutMods).
+    runWith('ftbteams')
+    runWith('progressivestages')
+    runWith('kubejs')
+}

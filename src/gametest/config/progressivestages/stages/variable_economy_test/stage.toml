@@ -1,0 +1,20 @@
+# A stage for Variable Economy's GameTests, copied into every GameTest world's config before each run. Having a stage
+# file at all stops ProgressiveStages from generating its showcase stages, whose locks (swords, bows, ender pearls...)
+# would lock items the tests trade. Test players never have this stage.
+[schema]
+version = 4
+
+[stage]
+id = "variable_economy_test:gametest"
+display_name = "Variable Economy GameTest"
+description = "Locks the dragon egg, for Variable Economy's GameTests."
+icon = "minecraft:dragon_egg"
+dependencies = []
+dependency_mode = "all"
+dependency_count = 1
+category = "Tests"
+color = "#808080"
+duration = ""
+hidden = false
+scope = "team"
+tags = ["test"]
