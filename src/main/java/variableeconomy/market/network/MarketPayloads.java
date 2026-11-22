@@ -112,7 +112,8 @@ public final class MarketPayloads {
 
     /**
      * Client to server: buy or sell from the open market screen. {@code quotedTotal} is the total the player was
-     * shown; the server rejects the trade with PRICE_CHANGED if its own total differs.
+     * shown; the server rejects the trade with PRICE_CHANGED only if its own total is worse for the player (a sale
+     * paying less, a purchase costing more).
      */
     public record TradeRequest(boolean buy, ResourceLocation item, int quantity, long quotedTotal) implements CustomPacketPayload {
         public static final Type<TradeRequest> TYPE = payloadType("trade_request");
@@ -125,6 +126,60 @@ public final class MarketPayloads {
 
         @Override
         public Type<TradeRequest> type() {
+            return TYPE;
+        }
+    }
+
+    private static final StreamCodec<ByteBuf, MarketService.Result> RESULT_CODEC =
+            ByteBufCodecs.VAR_INT.map(i -> MarketService.Result.values()[i], MarketService.Result::ordinal);
+
+    /** The most lines one Selling box request may hold: one per main-inventory slot. */
+    public static final int MAX_SELL_BOX_LINES = 36;
+
+    /** One item in the Selling box: how many to sell, and the total the player was shown for them. */
+    public record SellLine(ResourceLocation item, int quantity, long quotedTotal) {
+        public static final StreamCodec<ByteBuf, SellLine> CODEC = StreamCodec.composite(
+                ResourceLocation.STREAM_CODEC, SellLine::item,
+                ByteBufCodecs.VAR_INT, SellLine::quantity,
+                ByteBufCodecs.VAR_LONG, SellLine::quotedTotal,
+                SellLine::new);
+    }
+
+    /**
+     * Client to server: sell everything in the Selling box. Each line is its own sale, priced as {@link TradeRequest}
+     * is; a line that fails leaves the others to go ahead. At most {@link #MAX_SELL_BOX_LINES} lines, one per item.
+     */
+    public record SellBoxRequest(List<SellLine> lines) implements CustomPacketPayload {
+        public static final Type<SellBoxRequest> TYPE = payloadType("sell_box_request");
+        public static final StreamCodec<RegistryFriendlyByteBuf, SellBoxRequest> CODEC = StreamCodec.composite(
+                SellLine.CODEC.apply(ByteBufCodecs.list(MAX_SELL_BOX_LINES)), SellBoxRequest::lines,
+                SellBoxRequest::new);
+
+        @Override
+        public Type<SellBoxRequest> type() {
+            return TYPE;
+        }
+    }
+
+    /** How one line of the Selling box went: the result, and the quantity sold and total paid (or the new total). */
+    public record SellOutcomeLine(ResourceLocation item, MarketService.Result result, int quantity, long total) {
+        public static final StreamCodec<ByteBuf, SellOutcomeLine> CODEC = StreamCodec.composite(
+                ResourceLocation.STREAM_CODEC, SellOutcomeLine::item,
+                RESULT_CODEC, SellOutcomeLine::result,
+                ByteBufCodecs.VAR_INT, SellOutcomeLine::quantity,
+                ByteBufCodecs.VAR_LONG, SellOutcomeLine::total,
+                SellOutcomeLine::new);
+    }
+
+    /** Server to client: the outcome of the player's Selling box request, line by line in the request's order. */
+    public record SellBoxOutcome(List<SellOutcomeLine> lines) implements CustomPacketPayload {
+        public static final Type<SellBoxOutcome> TYPE = payloadType("sell_box_outcome");
+        public static final StreamCodec<RegistryFriendlyByteBuf, SellBoxOutcome> CODEC = StreamCodec.composite(
+                SellOutcomeLine.CODEC.apply(ByteBufCodecs.list(MAX_SELL_BOX_LINES)), SellBoxOutcome::lines,
+                SellBoxOutcome::new);
+
+        @Override
+        public Type<SellBoxOutcome> type() {
             return TYPE;
         }
     }
@@ -164,8 +219,8 @@ public final class MarketPayloads {
     /**
      * Server to client: the balance of the account this player trades with, how many plain copies of each item they
      * hold, listed or not, and how much room their main inventory has (empty slots, plus the space left in stacks of
-     * each of those). The client cannot work this out itself: vanilla does not sync the inventory while a slotless
-     * menu is open.
+     * each of those), counted by the server's own rules (plain copies, the server's {@code ignored_components}), so the
+     * screen's buttons agree with what the server will accept.
      */
     public record PlayerState(long balance, Map<ResourceLocation, Integer> held, int emptySlots,
                               Map<ResourceLocation, Integer> stackRoom) implements CustomPacketPayload {
@@ -271,9 +326,6 @@ public final class MarketPayloads {
             return TYPE;
         }
     }
-
-    private static final StreamCodec<ByteBuf, MarketService.Result> RESULT_CODEC =
-            ByteBufCodecs.VAR_INT.map(i -> MarketService.Result.values()[i], MarketService.Result::ordinal);
 
     /** Server to client: the outcome of this player's last trade request. */
     public record TradeOutcome(boolean buy, ResourceLocation item, MarketService.Result result, int quantity, long total)

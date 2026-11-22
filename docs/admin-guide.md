@@ -11,7 +11,7 @@ For what players see, read the [player guide](player-guide.md). For mods that bu
 
 ## Installing
 
-The market (`variable_economy_market-<version>.jar`, mod id `variable_economy_market`) is an add-on: it needs [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) (`variable_economy`) 0.6.1 or a later 0.6.x, so update them together. Install both on the server and on every client. It works with any of the other add-ons, [Contracts](https://github.com/The-Azotus/variable-economy-contracts) and [Exchange](https://github.com/The-Azotus/variable-economy-exchange), or with neither.
+The market (`variable_economy_market-<version>.jar`, mod id `variable_economy_market`) is an add-on: it needs [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) (`variable_economy`) 0.6.2 or a later 0.6.x, so update them together. Install both on the server and on every client. It works with any of the other add-ons, [Contracts](https://github.com/The-Azotus/variable-economy-contracts) and [Exchange](https://github.com/The-Azotus/variable-economy-exchange), or with neither.
 
 The market adds the Market Terminal, catalogs and prices, price tooltips and `/market`. Its settings are in its own config file, `config/variable_economy_market-server.toml` ([Server config](#server-config)).
 
@@ -38,7 +38,7 @@ Each layer only changes the fields it sets; everything else comes from the layer
 
 ## Letting players in
 
-The **Market Terminal** block opens the market's screen: the catalog, the selected item's chart and prices, Buy and Sell, and the player's recent trades. `/market` opens the same screen from anywhere. A screen opened from the block closes if the player walks more than about 8 blocks away or the block is broken.
+The **Market Terminal** block opens the market's screen: the catalog, the selected item's chart and prices, Buy and Sell, the Selling box (many items sold at once) and the player's recent trades. `/market` opens the same screen from anywhere. A screen opened from the block closes if the player walks more than about 8 blocks away or the block is broken.
 
 Choose whether players may use the commands with `access_mode` in `config/variable_economy_market-server.toml`. Core and the other add-ons each have their own `access_mode` in their own config file, so you can, say, keep `/bank` and make the market block-only.
 
@@ -90,11 +90,15 @@ There are three ways to price items, and you can mix them:
 
 **Built-in prices.** The mod ships prices for vanilla and a set of popular mods in a datapack that is **on** by default. It has one price file per mod, and each file loads only if its mod is installed, so it works in any modpack. It sits below the config folder and every other datapack, so your own catalog files, imports and edits always override it. To run your own prices from scratch, turn it off with `/datapack disable "mod/variable_economy_market:default_prices"`.
 
-The built-in prices cover raw materials: ores, logs, crops, mob drops and loot. Run [`/market admin suggest`](#suggesting-prices-from-recipes) to price the crafted items in your pack from them. The scale is roughly: cobblestone 1 bit, a log 8, an iron ingot 32, a diamond 512, a nether star 16,384. To change some of these prices without turning the pack off, see [Changing a built-in price](#changing-a-built-in-price).
+The built-in prices have 55 files, about 9,300 items in all (1,073 of them vanilla's): vanilla, Create and its add-ons, Mekanism, Applied Energistics 2, Immersive Engineering, Ars Nouveau, Farmer's Delight, Biomes O' Plenty, the Twilight Forest, Sophisticated Backpacks and others. The full list is the files in the pack, `data/variable_economy/market/<modid>.json`. They cover raw materials (ores, logs, crops, mob drops, loot) and the crafted items of those mods, each with a [class](#item-classes). For the crafted items of mods without a file, run [`/market admin suggest`](#suggesting-prices-from-recipes): it prices them from their recipes, and leaves items that already have a price alone. The scale is roughly: cobblestone 1 bit, a log 8, an iron ingot 32, a diamond 512, a nether star 16,384. To change some of these prices without turning the pack off, see [Changing a built-in price](#changing-a-built-in-price).
 
-The market buys ore-stage items (raw ores and raw ore blocks, crushed ores, Mekanism crystals, shards, clumps and dirty dusts, metal dusts, Spectrum pure metals) but doesn't sell them (`can_buy: false`). Ore processing in mods such as Mekanism turns one raw ore into up to three ingots, so selling raw ore would let players buy it, process it and sell the ingots at a profit. Players who want metal buy ingots. Ores themselves (the blocks) aren't listed: placing one and mining it with Fortune multiplies it.
+Some items can only be traded one way, so the built-in prices never give a profit loop:
 
-The mod also includes a small **example catalog**: cobblestone and oak log (unlimited stock), iron, diamond and nether star, at the built-in prices but with default settings instead of classes. It's a datapack that is **off** until you enable it:
+- **Bought, but not sold** (`can_buy: false`): ore-stage items (raw ores and raw ore blocks, crushed ores, Mekanism crystals, shards, clumps and dirty dusts, metal dusts, Spectrum pure metals). Ore processing in mods such as Mekanism turns one raw ore into up to three ingots, so selling raw ore would let players buy it, process it and sell the ingots at a profit. Players who want metal buy ingots.
+- **Sold, but not bought** (`can_sell: false`): about 1,550 items, mostly crafted ones such as tools, armour and machines, whose value lies in what went into them. Players can buy them, but the market pays nothing for them, and their rows show **–** under Sell.
+- **Ore blocks** are sold at prices above what Fortune or ore processing can make of them, so buying one to mine or process never pays. Most can't be sold back.
+
+The mod also includes a small **example catalog**: cobblestone and oak log (unlimited stock), iron, diamond and nether star, with default settings instead of classes. It starts each of its items over, so with the built-in prices on, those five items lose their built-in class and settings. It's a datapack that is **off** until you enable it:
 
 - `/datapack enable "mod/variable_economy_market:example_catalog"` turns it on; `/datapack disable "mod/variable_economy_market:example_catalog"` turns it off.
 - Its file, `data/variable_economy/market/example_catalog.json`, is a handy starting point for your own catalog.
@@ -483,7 +487,7 @@ Unlimited items charge `base_price × max(s × (1 + markup), 1 + min_buy_markup)
 
 **Example (default settings):** the example catalog's iron has `base_price: 32`, `markup: 0.5` and no class. Before any trades, the market pays 32 and charges 48. Selling 640 ingots in one order pays about 17,530 bits in total, not 20,480, and leaves `s` at about 0.73: the market then pays 23 and charges 35. After an hour without trades, iron is back to about 99% of base.
 
-**Keeping it fair.** At startup and after every reload, the server log warns about any item whose settings would let a player make money from a round trip in either order: buying and immediately selling back, or selling and buying back. To stay safe:
+**Keeping it fair.** At startup, after every reload and when the server config changes, the server log warns about any item whose settings would let a player make money from a round trip in either order: buying and immediately selling back, or selling and buying back. To stay safe:
 
 - keep `buy_impact` no higher than `markup`, and no higher than `sell_impact / (1 − sell_impact)`;
 - don't set `buy_impact` far below `sell_impact`. Otherwise a player can sell a large amount, crashing the price, and buy the same items back at the bottom for less than they were paid. For example, the default settings with `buy_impact = 0` let 3,000 iron be sold and bought back at a profit. How far below is safe depends on `markup`, `sell_fee`, `floor` and `ceiling`, so there's no fixed threshold.
@@ -509,7 +513,7 @@ With the market installed, every player's item tooltips show what the market pay
 
 ## Server config
 
-The market's server config is `config/variable_economy_market-server.toml`, created on first start. Changes apply when you save the file. A key such as `pricing.floor` is `floor` in the file's `[pricing]` section. Catalog entries can override everything in `[pricing]` except `interval_ticks`.
+The market's server config is `config/variable_economy_market-server.toml`, created on first start. Changes apply when you save the file: prices are recalculated, the round-trip check runs again (see [Keeping it fair](#supply-and-demand)), and open screens and tooltips get the new prices and order limit. Changing `interval_ticks` while the server runs re-counts the recovery steps of every price that is away from base, so those prices jump once to where the new interval would have brought them. A key such as `pricing.floor` is `floor` in the file's `[pricing]` section. Catalog entries can override everything in `[pricing]` except `interval_ticks`.
 
 | Option | Default | Range | What it does |
 | --- | --- | --- | --- |
@@ -529,7 +533,7 @@ Which item data doesn't stop a copy counting as plain, for market sales and the 
 | Command | Permission | What it does |
 | --- | --- | --- |
 | `/market` | everyone* | Opens the Market Terminal's screen. |
-| `/market stock [item]`, `/market price <item>` | everyone* | Shows stock, or an item's prices and price factor. |
+| `/market stock [item]`, `/market price <item>` | everyone* | Without an item, lists the items in stock (finite stock above 0; unlimited items aren't listed). With one, shows its stock; `price` shows its prices and price factor. |
 | `/market sell <item> <qty>`, `/market buy <item> <qty>` | everyone* | Trades without the screen, at whatever the price is when the command runs. Unlike the screen, there's no "price changed, confirm again" step. Use `BLOCK_ONLY` if you don't want players trading this way. |
 | `/market admin setstock <item> <qty>` | 2 | Sets an item's stock. Refused for unlimited items. |
 | `/market admin clearstock <item>` | 2 | Empties an item's stock. |

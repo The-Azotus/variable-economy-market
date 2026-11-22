@@ -28,7 +28,10 @@ public enum MarketResult {
     TOO_LARGE,
     /** A quantity of zero or less. */
     INVALID_QUANTITY,
-    /** The player can't use the named account this way: deposit into it for a sale, or spend from it for a purchase. */
+    /**
+     * The player can't use the named account this way (deposit into it for a sale, or spend from it for a purchase),
+     * or can't trade at all right now because they are dead.
+     */
     NOT_ALLOWED,
     /** The named account doesn't exist. */
     NO_ACCOUNT,

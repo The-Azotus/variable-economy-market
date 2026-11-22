@@ -33,6 +33,9 @@ public final class ClientMarketState {
     /** The last trade request sent, so a "price changed" reply can show the old total next to the new one. */
     @Nullable
     private static MarketPayloads.TradeRequest lastRequest;
+    /** The Selling box's last answer, until the screen takes it. */
+    @Nullable
+    private static MarketPayloads.SellBoxOutcome sellBoxOutcome;
     /** This player's recent trades, once the screen has asked for them. */
     @Nullable
     private static MarketPayloads.Trades trades;
@@ -105,6 +108,49 @@ public final class ClientMarketState {
         version++;
     }
 
+    /** The answer to a Selling box sale: a summary on the status line; the screen takes the lines for the box. */
+    public static void applySellBoxOutcome(MarketPayloads.SellBoxOutcome outcome) {
+        MarketModule.LOGGER.debug("Market sell box outcome: {}", outcome);
+        sellBoxOutcome = outcome;
+        long items = 0;
+        long total = 0;
+        int stayed = 0;
+        for (MarketPayloads.SellOutcomeLine line : outcome.lines()) {
+            if (line.result() == MarketService.Result.OK) {
+                items += line.quantity();
+                total += line.total();
+            } else {
+                stayed++;
+            }
+        }
+        String paid = PriceFormat.amount(total);
+        if (stayed == 0) {
+            status = Component.translatable("screen.variable_economy_market.sell_box.sold", PriceFormat.amount(items), PriceFormat.money(paid));
+        } else if (items > 0) {
+            status = Component.translatable("screen.variable_economy_market.sell_box.sold_some", PriceFormat.amount(items),
+                    PriceFormat.money(paid), stayed);
+        } else {
+            status = Component.translatable("screen.variable_economy_market.sell_box.sold_none");
+        }
+        statusIsError = stayed > 0;
+        version++;
+    }
+
+    /** The Selling box's last answer, once; null if there is none waiting. */
+    @Nullable
+    public static MarketPayloads.SellBoxOutcome takeSellBoxOutcome() {
+        MarketPayloads.SellBoxOutcome outcome = sellBoxOutcome;
+        sellBoxOutcome = null;
+        return outcome;
+    }
+
+    /** A message from the screen itself on the status line. */
+    public static void note(Component message, boolean error) {
+        status = message;
+        statusIsError = error;
+        version++;
+    }
+
     /** Only the most recently requested item's history is kept: the screen shows one at a time. */
     public static void applyHistory(MarketPayloads.History received) {
         history = received;
@@ -122,6 +168,7 @@ public final class ClientMarketState {
         history = null;
         player = emptyPlayer();
         lastRequest = null;
+        sellBoxOutcome = null;
         trades = null;
         status = Component.empty();
         statusIsError = false;

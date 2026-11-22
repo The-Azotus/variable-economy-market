@@ -39,7 +39,7 @@ public final class MarketListing {
             case ALL -> row.hasStock(1);
             case CAN_BUY -> row.canBuy() && row.hasStock(1);
             case CAN_SELL -> row.canSell();
-            case HELD -> held > 0;
+            case HELD -> held > 0 && row.canSell();
         };
     }
 

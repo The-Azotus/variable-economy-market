@@ -20,6 +20,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,7 +51,7 @@ public final class MarketService {
     public enum Result {
         OK, NOT_LISTED, SELL_DISABLED, BUY_DISABLED, NOT_ENOUGH_ITEMS, NO_STOCK, NO_FUNDS, NO_SPACE, PRICE_CHANGED,
         TOO_LARGE,
-        /** The player may not use the account named for the trade that way. */
+        /** The player may not use the account named for the trade that way, or can't trade right now (dead). */
         NOT_ALLOWED,
         /** The account named for the trade doesn't exist. */
         NO_ACCOUNT,
@@ -72,6 +73,42 @@ public final class MarketService {
         public boolean ok() {
             return result == Result.OK;
         }
+    }
+
+    /**
+     * The total a player was shown for a trade, and how the server's own total must compare with it.
+     *
+     * @param total    the total shown, in bits
+     * @param orBetter false: the totals must be equal. True: the trade also goes through when it is better for the
+     *                 player, paying more for a sale or costing less for a purchase.
+     */
+    public record Expected(long total, boolean orBetter) {
+        /** Exactly {@code total}, or null (any total) when empty. */
+        @Nullable
+        static Expected of(OptionalLong total) {
+            return total.isPresent() ? new Expected(total.getAsLong(), false) : null;
+        }
+
+        /** {@code total} or anything better for the player: what the market screen sends. */
+        public static Expected orBetter(long total) {
+            return new Expected(total, true);
+        }
+
+        /** Whether the server's {@code actual} total may go ahead; {@code buying} for a purchase. */
+        boolean accepts(long actual, boolean buying) {
+            if (!orBetter) {
+                return actual == total;
+            }
+            return buying ? actual <= total : actual >= total;
+        }
+    }
+
+    /**
+     * Whether the player can trade at all right now. A dead player can't: the screen may still count as open until
+     * they respawn, and anything given to the dead player's inventory would be lost.
+     */
+    public static boolean canTrade(ServerPlayer player) {
+        return player.isAlive() && !player.isRemoved();
     }
 
     /**
@@ -119,13 +156,27 @@ public final class MarketService {
      */
     public static TradeResult trySell(ServerPlayer player, Item item, int qty, OptionalLong expectedTotal) {
         requireServerThread(player);
-        return trySell(player, item, qty, expectedTotal, CoreApi.accounts().active(player));
+        return trySell(player, item, qty, Expected.of(expectedTotal), CoreApi.accounts().active(player));
     }
 
     /** The same, paid into {@code account}, which the player must be able to deposit into. */
     public static TradeResult trySell(ServerPlayer player, Item item, int qty, OptionalLong expectedTotal, AccountId account) {
+        return trySell(player, item, qty, Expected.of(expectedTotal), account);
+    }
+
+    /** The same, with the total the player was shown compared as {@code expected} says; null accepts any total. */
+    public static TradeResult trySell(ServerPlayer player, Item item, int qty, @Nullable Expected expected) {
+        requireServerThread(player);
+        return trySell(player, item, qty, expected, CoreApi.accounts().active(player));
+    }
+
+    /** The same, paid into {@code account}. */
+    public static TradeResult trySell(ServerPlayer player, Item item, int qty, @Nullable Expected expected, AccountId account) {
         requireServerThread(player);
         Objects.requireNonNull(account, "account");
+        if (!canTrade(player)) {
+            return TradeResult.fail(Result.NOT_ALLOWED);
+        }
         Optional<CatalogEntry> listing = MarketCatalog.INSTANCE.get(item);
         // A locked item answers exactly as an unlisted one, so the reply doesn't reveal it.
         if (listing.isEmpty() || CoreApi.itemGate().isLocked(player, item)) {
@@ -150,7 +201,7 @@ public final class MarketService {
         if (!fitsBank(order) || (!entry.unlimitedStock() && stock > Long.MAX_VALUE - qty)) {
             return new TradeResult(Result.TOO_LARGE, 0, unitPrice, 0);
         }
-        if (expectedTotal.isPresent() && expectedTotal.getAsLong() != order.total()) {
+        if (expected != null && !expected.accepts(order.total(), false)) {
             return new TradeResult(Result.PRICE_CHANGED, 0, unitPrice, order.total());
         }
 
@@ -190,13 +241,27 @@ public final class MarketService {
      */
     public static TradeResult tryBuy(ServerPlayer player, Item item, int qty, OptionalLong expectedTotal) {
         requireServerThread(player);
-        return tryBuy(player, item, qty, expectedTotal, CoreApi.accounts().active(player));
+        return tryBuy(player, item, qty, Expected.of(expectedTotal), CoreApi.accounts().active(player));
     }
 
     /** The same, paid from {@code account}, which the player must be able to spend from. */
     public static TradeResult tryBuy(ServerPlayer player, Item item, int qty, OptionalLong expectedTotal, AccountId account) {
+        return tryBuy(player, item, qty, Expected.of(expectedTotal), account);
+    }
+
+    /** The same, with the total the player was shown compared as {@code expected} says; null accepts any total. */
+    public static TradeResult tryBuy(ServerPlayer player, Item item, int qty, @Nullable Expected expected) {
+        requireServerThread(player);
+        return tryBuy(player, item, qty, expected, CoreApi.accounts().active(player));
+    }
+
+    /** The same, paid from {@code account}. */
+    public static TradeResult tryBuy(ServerPlayer player, Item item, int qty, @Nullable Expected expected, AccountId account) {
         requireServerThread(player);
         Objects.requireNonNull(account, "account");
+        if (!canTrade(player)) {
+            return TradeResult.fail(Result.NOT_ALLOWED);
+        }
         Optional<CatalogEntry> listing = MarketCatalog.INSTANCE.get(item);
         // A locked item answers exactly as an unlisted one, so the reply doesn't reveal it.
         if (listing.isEmpty() || CoreApi.itemGate().isLocked(player, item)) {
@@ -220,7 +285,7 @@ public final class MarketService {
         if (!fitsBank(order)) {
             return new TradeResult(Result.TOO_LARGE, 0, unitPrice, 0);
         }
-        if (expectedTotal.isPresent() && expectedTotal.getAsLong() != order.total()) {
+        if (expected != null && !expected.accepts(order.total(), true)) {
             return new TradeResult(Result.PRICE_CHANGED, 0, unitPrice, order.total());
         }
 

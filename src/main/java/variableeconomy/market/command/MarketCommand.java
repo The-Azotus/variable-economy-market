@@ -2,6 +2,8 @@ package variableeconomy.market.command;
 
 import variableeconomy.market.MarketSettings;
 import variableeconomy.market.MarketModule;
+import variableeconomy.core.api.AccountId;
+import variableeconomy.core.api.AccountInfo;
 import variableeconomy.core.api.CoreApi;
 import com.google.gson.JsonPrimitive;
 import com.mojang.brigadier.CommandDispatcher;
@@ -40,6 +42,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
 import net.neoforged.fml.loading.FMLPaths;
 
@@ -54,6 +57,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -194,34 +198,52 @@ public final class MarketCommand {
         if (result.ok()) {
             MarketSync.broadcastRow(player.server, item);
             MarketSync.sendPlayerState(player);
-            String stock = describeStock(ctx.getSource().getServer(), item);
-            String verb = selling ? "Sold" : "Bought";
-            String direction = selling ? "received" : "paid";
-            String unit = unit(ctx.getSource());
-            ctx.getSource().sendSuccess(() -> Component.literal("%s %d × %s for %d %s (first unit %d); you %s %d %s. Market stock: %s"
-                    .formatted(verb, result.quantity(), id(item), result.total(), unit, result.unitPrice(), direction,
-                            result.total(), unit, stock)), false);
+            // Named when the money went to or came from a shared account, which others may also use.
+            AccountId account = CoreApi.accounts().active(player);
+            Optional<String> shared = account.equals(CoreApi.accounts().personal(player.getUUID())) ? Optional.empty()
+                    : CoreApi.accounts().get(player.server, account).map(AccountInfo::name);
+            Component money = CoreApi.formatMoney(result.total());
+            Component name = new ItemStack(item).getHoverName();
+            String key = "command." + MarketModule.MOD_ID + "." + (selling ? "sold" : "bought");
+            Component message = shared.isEmpty()
+                    ? Component.translatable(key, result.quantity(), name, money)
+                    : Component.translatable(key + "_account", result.quantity(), name, money, shared.get());
+            ctx.getSource().sendSuccess(() -> message, false);
             return result.quantity();
         }
-        ctx.getSource().sendFailure(Component.literal("%s failed: %s".formatted(selling ? "Sell" : "Buy", result.result())));
+        // The same sentences the screen shows.
+        ctx.getSource().sendFailure(Component.translatable(
+                "screen." + MarketModule.MOD_ID + ".result." + result.result().name().toLowerCase(Locale.ROOT)));
         return 0;
     }
 
+    /**
+     * The items the market has in stock, by name: finite stock above zero. Unlimited items are always available, so
+     * they aren't listed; {@code /market stock <item>} answers for any one item.
+     */
     private static int listStock(CommandContext<CommandSourceStack> ctx) {
-        if (MarketCatalog.INSTANCE.entries().isEmpty()) {
-            ctx.getSource().sendFailure(Component.literal("The market catalog is empty"));
+        MarketStockData market = MarketStockData.get(ctx.getSource().getServer());
+        List<CatalogEntry> inStock = new ArrayList<>();
+        for (CatalogEntry entry : MarketCatalog.INSTANCE.entries()) {
+            if (!entry.unlimitedStock() && entry.canBuy() && market.getStock(entry.itemId()) > 0
+                    && !hiddenFrom(ctx.getSource(), entry.item())) {
+                inStock.add(entry);
+            }
+        }
+        if (inStock.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.translatable("command." + MarketModule.MOD_ID + ".stock.none"), false);
             return 0;
         }
-        int shown = 0;
-        for (CatalogEntry entry : MarketCatalog.INSTANCE.entries()) {
-            if (hiddenFrom(ctx.getSource(), entry.item())) {
-                continue;
-            }
-            String stock = describeStock(ctx.getSource().getServer(), entry.item());
-            ctx.getSource().sendSuccess(() -> Component.literal("%s: %s".formatted(entry.itemId(), stock)), false);
-            shown++;
+        inStock.sort(Comparator.comparing((CatalogEntry entry) -> new ItemStack(entry.item()).getHoverName().getString())
+                .thenComparing(entry -> entry.itemId().toString()));
+        int count = inStock.size();
+        ctx.getSource().sendSuccess(() -> Component.translatable("command." + MarketModule.MOD_ID + ".stock.header", count), false);
+        for (CatalogEntry entry : inStock) {
+            long stock = market.getStock(entry.itemId());
+            ctx.getSource().sendSuccess(() -> Component.translatable("command." + MarketModule.MOD_ID + ".stock.line",
+                    new ItemStack(entry.item()).getHoverName(), String.format(Locale.ROOT, "%,d", stock)), false);
         }
-        return shown;
+        return count;
     }
 
     private static int showStock(CommandContext<CommandSourceStack> ctx) {
@@ -787,10 +809,10 @@ public final class MarketCommand {
     }
 
     /** "unlimited" for unlimited items (with the stored value kept for if it turns finite), else the stock. */
+    /** Stock as players see it: "unlimited", or the amount. */
     private static String describeStock(MinecraftServer server, Item item) {
-        long stored = MarketStockData.get(server).getStock(id(item));
         boolean unlimited = MarketCatalog.INSTANCE.get(item).map(CatalogEntry::unlimitedStock).orElse(false);
-        return unlimited ? "unlimited (stored %d, used if it becomes finite)".formatted(stored) : String.valueOf(stored);
+        return unlimited ? "unlimited" : String.valueOf(MarketStockData.get(server).getStock(id(item)));
     }
 
     /**

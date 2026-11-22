@@ -547,6 +547,8 @@ public final class MarketTradeTests {
                 "sellable, in stock or not");
         helper.assertValueEqual(view.apply(MarketListing.Sort.NAME, MarketListing.Filter.HELD), List.of("apple", "bread"),
                 "held, so a sold-out item can still be sold");
+        helper.assertTrue(!MarketListing.shows(MarketListing.Filter.HELD, cake, 3),
+                "Held leaves out a held item the market doesn't buy");
 
         java.util.function.Function<MarketListing.Filter, List<String>> hidden = filter ->
                 rows.stream().filter(row -> MarketListing.hiddenForStock(filter, row)).map(name).sorted().toList();
