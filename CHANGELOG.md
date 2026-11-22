@@ -2,6 +2,21 @@
 
 What changed in each release of the market add-on, for players and server admins. Mod and add-on authors: the API's changes are in the [add-on guide's changelog](docs/api.md#changelog). The changes to Variable Economy as a whole, core and the other add-ons, are in [core's changelog](https://github.com/The-Azotus/variable-economy-core/blob/main/CHANGELOG.md).
 
+## Unreleased
+
+**Install with core 0.6.2 or a later 0.6.x.** The market's network protocol changed: the server and every client need this version.
+
+- **The Selling box.** The market screen shows your inventory and a Selling box along the bottom. Click items to put them in the box (right-click for one, Shift-click for every copy), see what they're worth, and sell them all with one click. The items stay in your inventory until you sell, so closing the screen never loses anything. On a small window the box is a third view of the list, after Items and My trades.
+- **No more "price changed" when the price moves your way.** A trade from the screen goes through if it pays at least, or costs at most, what the button showed. Only a price that moved against you asks you to confirm again.
+- **The list's scrollbar can be dragged**: click it to jump there, or hold and drag.
+- **Held** lists only items you hold that the market buys, as its tooltip said.
+- **`/market sell` and `/market buy`** answer in plain sentences, the same ones the screen uses, and name the shared account the money went to or came from.
+- **`/market stock`** without an item lists only the items in stock, by name, instead of every listed item. `/market admin info <item>` shows an item's stock.
+- **Server config changes apply at once.** Saving `variable_economy_market-server.toml` while the server runs updates prices, open screens and tooltips, and re-runs the round-trip check.
+- **Fixed:** a trade that reached the server after the player died, with the market screen still open, could charge them for items that were then lost. A dead player can no longer trade.
+- **The example catalog** now starts its five items over, so with the built-in prices on, they really have default settings instead of their built-in classes, as the admin guide says.
+- The admin guide describes the built-in prices as they ship: 55 mods, crafted items included, and which items trade only one way.
+
 ## 0.6.1 (2026-11-17)
 
 - The market now lives in its own repository; nothing changes in game.

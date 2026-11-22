@@ -1,5 +1,5 @@
 {
-  "defaults": { "markup": 0.5, "sell_fee": 0.0, "dynamic": true },
+  "defaults": { "replace": true, "markup": 0.5, "sell_fee": 0.0, "dynamic": true },
   "entries": [
     { "item": "minecraft:cobblestone",  "base_price": 1,    "unlimited_stock": true },
     { "item": "minecraft:oak_log",      "base_price": 8,    "unlimited_stock": true },

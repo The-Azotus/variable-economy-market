@@ -1,6 +1,7 @@
 package variableeconomy.market;
 
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.ModContainer;
 import com.mojang.logging.LogUtils;
@@ -19,6 +20,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 import variableeconomy.core.api.event.BalanceChangedEvent;
 import variableeconomy.core.api.event.ItemGateChangedEvent;
@@ -72,6 +74,7 @@ public final class MarketModule {
         modBus.addListener(MarketNetwork::register);
         modBus.addListener(MarketModule::addExampleCatalog);
         modBus.addListener(MarketModule::addDefaultPrices);
+        modBus.addListener(MarketModule::configReloaded);
 
         NeoForge.EVENT_BUS.addListener((AddReloadListenerEvent event) -> event.addListener(MarketCatalog.INSTANCE));
         // What a player has unlocked decides which items they're sent.
@@ -114,6 +117,27 @@ public final class MarketModule {
         MarketSync.broadcastSnapshot(server);
         MarketEvents.post(new CatalogReloadedEvent(server));
         return problems;
+    }
+
+    /**
+     * The server config file was changed while the server runs. Entries read their defaults from it live, so prices
+     * may have moved: rebuild as after a catalog reload, which re-checks round trips and sends every player the new
+     * prices and order limit. The event comes from the config watcher's thread, so the work goes to the server thread.
+     */
+    private static void configReloaded(ModConfigEvent.Reloading event) {
+        if (event.getConfig().getSpec() != MarketConfig.SPEC) {
+            return;
+        }
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null) {
+            server.execute(() -> configChanged(server));
+        }
+    }
+
+    /** After the server config changed while the server runs. Server thread only. */
+    public static void configChanged(MinecraftServer server) {
+        LOGGER.info("The market's server config changed; prices updated");
+        catalogReloaded(server);
     }
 
     /** Checked once config and catalog are both loaded, since entries inherit config defaults. */

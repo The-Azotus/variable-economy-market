@@ -7,7 +7,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /** The market's packets. */
 public final class MarketNetwork {
-    private static final String PROTOCOL_VERSION = "17";
+    private static final String PROTOCOL_VERSION = "18";
 
     private MarketNetwork() {
     }
@@ -22,6 +22,11 @@ public final class MarketNetwork {
         registrar.playToServer(MarketPayloads.TradeRequest.TYPE, MarketPayloads.TradeRequest.CODEC, (payload, context) -> {
             if (context.player() instanceof ServerPlayer player) {
                 MarketSync.handleTradeRequest(payload, player);
+            }
+        });
+        registrar.playToServer(MarketPayloads.SellBoxRequest.TYPE, MarketPayloads.SellBoxRequest.CODEC, (payload, context) -> {
+            if (context.player() instanceof ServerPlayer player) {
+                MarketSync.handleSellBox(payload, player);
             }
         });
         registrar.playToServer(MarketPayloads.HistoryRequest.TYPE, MarketPayloads.HistoryRequest.CODEC, (payload, context) -> {
@@ -46,5 +51,7 @@ public final class MarketNetwork {
                 (payload, context) -> ClientMarketState.applyPlayerState(payload));
         registrar.playToClient(MarketPayloads.TradeOutcome.TYPE, MarketPayloads.TradeOutcome.CODEC,
                 (payload, context) -> ClientMarketState.applyOutcome(payload));
+        registrar.playToClient(MarketPayloads.SellBoxOutcome.TYPE, MarketPayloads.SellBoxOutcome.CODEC,
+                (payload, context) -> ClientMarketState.applySellBoxOutcome(payload));
     }
 }

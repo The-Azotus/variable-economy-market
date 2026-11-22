@@ -25,7 +25,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 
@@ -52,8 +51,9 @@ public final class MarketSync {
                 .toList();
     }
 
+    /** Whether the player has a market screen open that may still trade: a dead player's screen may not. */
     private static boolean viewing(ServerPlayer player) {
-        return player.containerMenu instanceof MarketMenu menu && menu.stillValid(player);
+        return player.containerMenu instanceof MarketMenu menu && menu.stillValid(player) && MarketService.canTrade(player);
     }
 
     /** Call right after the market screen opens. */
@@ -194,9 +194,9 @@ public final class MarketSync {
         if (item.isEmpty()) {
             result = new MarketService.TradeResult(MarketService.Result.NOT_LISTED, 0, 0, 0);
         } else if (request.buy()) {
-            result = MarketService.tryBuy(player, item.get(), request.quantity(), OptionalLong.of(request.quotedTotal()));
+            result = MarketService.tryBuy(player, item.get(), request.quantity(), MarketService.Expected.orBetter(request.quotedTotal()));
         } else {
-            result = MarketService.trySell(player, item.get(), request.quantity(), OptionalLong.of(request.quotedTotal()));
+            result = MarketService.trySell(player, item.get(), request.quantity(), MarketService.Expected.orBetter(request.quotedTotal()));
         }
 
         PacketDistributor.sendToPlayer(player, new MarketPayloads.TradeOutcome(
@@ -213,6 +213,64 @@ public final class MarketSync {
             }
         }
         sendPlayerState(player);
+    }
+
+    /** Sells the Selling box for a player whose market screen is open (see {@link #sellBox}), then answers them. */
+    public static void handleSellBox(MarketPayloads.SellBoxRequest request, ServerPlayer player) {
+        if (!viewing(player)) {
+            return;
+        }
+        List<MarketPayloads.SellOutcomeLine> outcomes = sellBox(player, request);
+        if (outcomes.isEmpty()) {
+            return;
+        }
+        PacketDistributor.sendToPlayer(player, new MarketPayloads.SellBoxOutcome(outcomes));
+        boolean anySold = false;
+        for (MarketPayloads.SellOutcomeLine line : outcomes) {
+            Optional<Item> item = BuiltInRegistries.ITEM.getOptional(line.item());
+            if (item.isEmpty()) {
+                continue;
+            }
+            if (line.result() == MarketService.Result.OK) {
+                anySold = true;
+                broadcastRow(player.server, item.get());
+            } else if (!CoreApi.itemGate().isLocked(player, item.get())) {
+                // As for a single trade: the client's view of a refused item is probably stale, so refresh its row.
+                row(player.server, item.get()).ifPresent(row ->
+                        PacketDistributor.sendToPlayer(player, new MarketPayloads.RowUpdate(List.of(row))));
+            }
+        }
+        if (anySold) {
+            sendTrades(player);
+        }
+        sendPlayerState(player);
+    }
+
+    /**
+     * Sells the lines of a Selling box request, each as its own sale at the current price, as long as that pays at
+     * least what the player was shown. A line that fails (price dropped, items gone) changes nothing, and the others
+     * still go ahead. Returns one outcome per line, in order; empty if the request is refused whole: no lines, too
+     * many, or one item twice, none of which the screen sends.
+     */
+    public static List<MarketPayloads.SellOutcomeLine> sellBox(ServerPlayer player, MarketPayloads.SellBoxRequest request) {
+        if (request.lines().isEmpty() || request.lines().size() > MarketPayloads.MAX_SELL_BOX_LINES) {
+            return List.of();
+        }
+        Set<ResourceLocation> seen = new HashSet<>();
+        for (MarketPayloads.SellLine line : request.lines()) {
+            if (!seen.add(line.item())) {
+                return List.of();
+            }
+        }
+        List<MarketPayloads.SellOutcomeLine> outcomes = new ArrayList<>();
+        for (MarketPayloads.SellLine line : request.lines()) {
+            Optional<Item> item = BuiltInRegistries.ITEM.getOptional(line.item());
+            MarketService.TradeResult result = item.isEmpty()
+                    ? new MarketService.TradeResult(MarketService.Result.NOT_LISTED, 0, 0, 0)
+                    : MarketService.trySell(player, item.get(), line.quantity(), MarketService.Expected.orBetter(line.quotedTotal()));
+            outcomes.add(new MarketPayloads.SellOutcomeLine(line.item(), result.result(), result.quantity(), result.total()));
+        }
+        return outcomes;
     }
 
     static void handleTradesRequest(ServerPlayer player) {

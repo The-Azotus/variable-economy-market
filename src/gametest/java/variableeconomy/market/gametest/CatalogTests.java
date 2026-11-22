@@ -416,6 +416,25 @@ public final class CatalogTests {
                 JsonParser.parseString(json));
     }
 
+    /** The example catalog starts its items over, so with the built-in prices on they lose their class and markup. */
+    @GameTest(template = EMPTY)
+    public static void exampleCatalogReplacesBuiltInEntries(GameTestHelper helper) throws java.io.IOException {
+        String example;
+        try (var in = MarketModule.class.getResourceAsStream("/example_catalog/data/variable_economy/market/example_catalog.json")) {
+            helper.assertTrue(in != null, "the example catalog ships in the jar");
+            example = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        MarketCatalog.SourceFile builtIn = sourceFile("built_in", 0, """
+                { "entries": [ { "item": "minecraft:iron_ingot", "base_price": 32, "class": "common_processed", "markup": 0.4, "sell_impact": 0.01 } ] }""");
+        MarketCatalog.Loaded loaded = MarketCatalog.load(List.of(sourceFile("example", 1, example), builtIn));
+        CatalogEntry iron = loaded.entries().get(Items.IRON_INGOT);
+        helper.assertTrue(iron.itemClass().isEmpty(), "no class: the example starts the entry over");
+        helper.assertValueEqual(iron.markup(), 0.5, "the example's markup");
+        helper.assertValueEqual(iron.basePrice(), 32, "the example's price");
+        helper.assertTrue(iron.overrides().sellImpact().isEmpty(), "nothing kept from the built-in entry");
+        helper.succeed();
+    }
+
     @GameTest(template = EMPTY)
     public static void higherFilesChangeOnlyTheFieldsTheySet(GameTestHelper helper) {
         MarketCatalog.SourceFile builtIn = sourceFile("built_in", 0, """

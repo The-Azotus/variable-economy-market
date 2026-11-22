@@ -251,7 +251,7 @@ Trades work exactly as the market screen does: the same checks, price movement, 
 - An item locked for the player answers `NOT_LISTED`, the same as an unlisted one, so the reply doesn't reveal it.
 - Trades through `MarketTrading` count in `/market admin stats`, like the screen's.
 
-`TradeResult` holds `result`, `quantity` (the units traded; 0 unless OK), `unitPrice` (what the first unit traded at, or would have; 0 if the trade failed before it was priced), `total` (what the whole order paid or cost; on `NO_FUNDS`, `NO_STOCK`, `NO_SPACE` and `NOT_ENOUGH_ITEMS`, what it would have; otherwise 0) and `account` (the account paid or charged, or that would have been).
+`TradeResult` holds `result`, `quantity` (the units traded; 0 unless OK), `unitPrice` (what the first unit traded at, or would have; 0 if the trade failed before it was priced), `total` (what the whole order paid or cost; for a refusal found once the order was priced, what it would have: `NO_FUNDS`, `NO_STOCK`, `NO_SPACE`, `NOT_ENOUGH_ITEMS`, `NO_ACCOUNT`, `BANK_UNAVAILABLE`, `NOT_ALLOWED` for an account the player can't use, and `TOO_LARGE` for a payment the account can't hold; otherwise 0) and `account` (the account paid or charged, or that would have been).
 
 ### The money rule
 
@@ -280,7 +280,7 @@ Never pay the market's sell price, or any price of your own, for items the marke
 | `NO_FUNDS` | `buy` | The account can't cover it. |
 | `TOO_LARGE` | `sell`, `buy` | A quantity above `max_quantity_per_request`, a total too large to count, or a sale that would push stock or a balance past what it can hold. |
 | `INVALID_QUANTITY` | `sell`, `buy` | A quantity of zero or less. |
-| `NOT_ALLOWED` | `sell`, `buy` with an account | The player can't use the named account that way. |
+| `NOT_ALLOWED` | `sell`, `buy` | The player can't use the named account that way, or is dead. |
 | `NO_ACCOUNT` | `sell`, `buy` with an account | The named account doesn't exist. |
 | `BANK_UNAVAILABLE` | `sell`, `buy` | The bank can't be reached. Not returned today. |
 
@@ -397,6 +397,11 @@ Its prices ship in its jar at `data/questcoins/market/questcoins.json`, as in [P
 ## Changelog
 
 The market's API changes. Core's are in [core's add-on guide](https://github.com/The-Azotus/variable-economy-core/blob/main/docs/api.md).
+
+- **Unreleased:** requires core 0.6.2 or a later 0.6.x.
+  - A dead player can't trade: `sell` and `buy` answer `NOT_ALLOWED` and change nothing.
+  - `CatalogReloadedEvent` is also posted when the market's server config file changes while the server runs, since its pricing defaults apply to every item that doesn't set its own.
+  - Docs only: `TradeResult.total`'s javadoc now lists every refusal that carries the would-be total; the code is unchanged.
 
 - **0.6.1 (2026-11-17):** the market is its own repository and release; nothing in its API changed. `gradlew publishToMavenLocal` in this repository publishes it as `variableeconomy:market:<version>`, and its artifact names no dependencies: declare core yourself.
 

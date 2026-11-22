@@ -29,13 +29,15 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The market screen: the catalog, the selected item's chart and prices, and Buy and Sell. A button in the title row
- * switches the list between the catalog ({@link MarketTab}) and the player's recent trades ({@link HistoryTab}); the
- * frame holds the layout, the search box, the quantity controls, scrolling and the status line, and hands every event
- * to the open view.
+ * The market screen: the catalog, the selected item's chart and prices, Buy and Sell, and the Selling box. A button
+ * in the title row switches the list between the catalog ({@link MarketTab}) and the player's recent trades
+ * ({@link HistoryTab}); the frame holds the layout, the search box, the quantity controls, scrolling and the status
+ * line, and hands every event to the open view.
  *
  * <p>The screen sizes itself to the window. On a wide window the panel sits beside the list; on a narrow one it sits
- * below. The list shows as many rows as fit.
+ * below. The Selling box ({@link SellBox}) and the player's inventory sit along the bottom while the list keeps at
+ * least {@link #MIN_LIST_ROWS_WITH_BOX} rows; on a smaller window the box is the list's third view instead. The list
+ * shows as many rows as fit.
  */
 public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
     /** The largest the screen grows to, so rows stay readable on a big window at GUI scale 1. */
@@ -68,6 +70,8 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
     static final int NARROW_CHART_HEIGHT = 16;
     /** Width of the quantity controls: -, the box, +, Max and All. */
     static final int CONTROLS_WIDTH = 132;
+    /** The fewest list rows kept when the Selling box sits below the list; with fewer it becomes a view of its own. */
+    static final int MIN_LIST_ROWS_WITH_BOX = 4;
 
     static final int PANEL = 0xF0202024;
     static final int PANEL_BORDER = 0xFF5A5A64;
@@ -86,9 +90,9 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
     /** Lower-case mod display names by namespace, for {@code @mod} searches. The mod list never changes in a session. */
     private static final Map<String, String> MOD_NAMES = new HashMap<>();
 
-    /** What the list shows: the catalog, or the player's recent trades. */
+    /** What the list shows: the catalog, the player's recent trades, or (on a small window) the Selling box. */
     enum Mode {
-        ITEMS, TRADES;
+        ITEMS, TRADES, SELL;
 
         Component label() {
             return Component.translatable("screen.variable_economy_market.mode." + name().toLowerCase(Locale.ROOT));
@@ -105,9 +109,14 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
 
     private final MarketTab market = new MarketTab(this);
     private final HistoryTab history = new HistoryTab(this);
+    private final SellBox sellBox = new SellBox(this);
 
     // The layout, worked out from the window size in init(). Positions are relative to leftPos/topPos.
     boolean wide;
+    /** Whether the Selling box sits below the list; if not, it is the list's third view. */
+    boolean boxInline;
+    private int boxX;
+    private int boxY;
     /** Whether the balance fits beside the title and mode button; if not it goes at the end of the toolbar, abbreviated. */
     private boolean balanceInTabRow;
     int listWidth;
@@ -138,6 +147,8 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
     private String seenQuery = "";
     boolean listDirty = true;
     int scroll;
+    /** Whether the scrollbar's thumb is being dragged. */
+    private boolean draggingScrollbar;
 
     /** A short explanation under the quantity, set by All and Max; it lasts until the quantity changes. */
     Component quantityNote = Component.empty();
@@ -149,7 +160,20 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
 
     /** The open view. */
     ScreenTab activeTab() {
-        return mode == Mode.ITEMS ? market : history;
+        return switch (mode) {
+            case ITEMS -> market;
+            case TRADES -> history;
+            case SELL -> sellBox;
+        };
+    }
+
+    /** The mode the mode button switches to: the box is a view only when it doesn't fit below the list. */
+    private Mode nextMode() {
+        return switch (mode) {
+            case ITEMS -> Mode.TRADES;
+            case TRADES -> boxInline ? Mode.ITEMS : Mode.SELL;
+            case SELL -> Mode.ITEMS;
+        };
     }
 
     MarketTab market() {
@@ -184,6 +208,9 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         imageHeight = Math.min(MAX_HEIGHT, height - MARGIN);
         super.init();
         layout();
+        if (boxInline && mode == Mode.SELL) {
+            mode = Mode.ITEMS;
+        }
         int x = leftPos;
         int y = topPos;
 
@@ -192,7 +219,7 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         String quantityText = quantity != null ? quantity.getValue() : "1";
         marketControls.clear();
 
-        modeButton = addRenderableWidget(Button.builder(Component.empty(), b -> selectMode(mode == Mode.ITEMS ? Mode.TRADES : Mode.ITEMS))
+        modeButton = addRenderableWidget(Button.builder(Component.empty(), b -> selectMode(nextMode()))
                 .bounds(x + MARGIN + font.width(title) + 8, y + TAB_Y, MODE_BUTTON_WIDTH, TAB_HEIGHT)
                 .tooltip(Tooltip.create(Component.translatable("screen.variable_economy_market.mode.tooltip")))
                 .build());
@@ -234,6 +261,7 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
                 .build()));
 
         market.initTradeButtons(x, y);
+        sellBox.init(x, y, boxX, boxY);
         updateListButtons();
 
         seenVersion = -1;
@@ -251,8 +279,38 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         int titleEnd = MARGIN + font.width(title) + 8 + MODE_BUTTON_WIDTH;
         balanceInTabRow = titleEnd + 8 + font.width(balanceText(widestBalance(), false)) <= right;
 
+        // The Selling box goes along the bottom if the list keeps enough rows above it; else it is a view of the list.
+        boxInline = right - MARGIN >= SellBox.WIDTH;
+        if (boxInline) {
+            placeListAndPanel(bottom - SellBox.HEIGHT - 4, true);
+            boxInline = rows >= MIN_LIST_ROWS_WITH_BOX;
+        }
+        if (boxInline) {
+            boxX = MARGIN;
+            boxY = bottom - SellBox.HEIGHT;
+        } else {
+            placeListAndPanel(bottom, true);
+            if (wide && panelX - MARGIN - LIST_X < SellBox.WIDTH) {
+                // As a view, the box takes the list's place, which must be wide enough for it.
+                placeListAndPanel(bottom, false);
+            }
+            boxX = LIST_X;
+            boxY = HEADER_Y;
+        }
+
+        int listRight = LIST_X + listWidth;
+        colTrend = listRight - 10;
+        colHave = listRight - 13;
+        colSell = colHave - 34;
+        colBuy = colSell - 42;
+        colStock = colBuy - 42;
+    }
+
+    /** Places the list and the selection panel above {@code bottom}: side by side if {@code allowWide} and it fits. */
+    private void placeListAndPanel(int bottom, boolean allowWide) {
+        int right = imageWidth - MARGIN;
         // Wide: the panel is a column on the right, stacked from the top; the chart takes spare height up to a limit.
-        wide = imageWidth >= WIDE_MIN_WIDTH;
+        wide = allowWide && imageWidth >= WIDE_MIN_WIDTH;
         if (wide) {
             panelWidth = SIDE_WIDTH;
             panelX = right - SIDE_WIDTH;
@@ -290,13 +348,6 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
             listWidth = right - SCROLLBAR_WIDTH - 2 - LIST_X;
             rows = Math.max(1, (panelY - 4 - LIST_Y) / ROW_HEIGHT);
         }
-
-        int listRight = LIST_X + listWidth;
-        colTrend = listRight - 10;
-        colHave = listRight - 13;
-        colSell = colHave - 34;
-        colBuy = colSell - 42;
-        colStock = colBuy - 42;
     }
 
     // ---- State -----------------------------------------------------------------------------------------------
@@ -313,6 +364,11 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         }
         market.refreshButtons();
         market.requestHistoryIfStale();
+        MarketPayloads.SellBoxOutcome outcome = ClientMarketState.takeSellBoxOutcome();
+        if (outcome != null) {
+            sellBox.applyOutcome(outcome);
+        }
+        sellBox.sync();
     }
 
     private void rebuildList(String query) {
@@ -340,6 +396,7 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         boolean quantityShown = open.showsQuantity();
         marketControls.forEach(widget -> widget.visible = quantityShown);
         market.updateWidgets(quantityShown);
+        sellBox.setShown(boxInline || mode == Mode.SELL);
         GuiEventListener focused = getFocused();
         if (focused == search && !search.visible || focused == quantity && !quantityShown) {
             setFocused(null);
@@ -422,6 +479,15 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (sellBox.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isOverScrollbar(mouseX, mouseY)) {
+            // A click on the track jumps there; holding the button drags the thumb.
+            draggingScrollbar = true;
+            scrollTo(mouseY);
+            return true;
+        }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             int index = rowAt(mouseX, mouseY);
             if (index >= 0 && activeTab().rowClicked(index)) {
@@ -432,6 +498,49 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (draggingScrollbar) {
+            scrollTo(mouseY);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (draggingScrollbar && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            draggingScrollbar = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    /** Whether the mouse is on the scrollbar of a list long enough to scroll. */
+    private boolean isOverScrollbar(double mouseX, double mouseY) {
+        double x = mouseX - leftPos - (LIST_X + listWidth + 2);
+        double y = mouseY - topPos - LIST_Y;
+        return mode != Mode.SELL && maxScroll() > 0
+                && x >= -1 && x < SCROLLBAR_WIDTH + 1 && y >= 0 && y < rows * ROW_HEIGHT;
+    }
+
+    /** Scrolls so the thumb's middle sits at {@code mouseY}, as far as the list allows. */
+    private void scrollTo(double mouseY) {
+        int height = rows * ROW_HEIGHT;
+        int thumb = thumbHeight();
+        if (height <= thumb || maxScroll() == 0) {
+            return;
+        }
+        double fraction = (mouseY - topPos - LIST_Y - thumb / 2.0) / (height - thumb);
+        scroll = Mth.clamp((int) Math.round(fraction * maxScroll()), 0, maxScroll());
+    }
+
+    /** The scrollbar thumb's height: the share of the list that shows, at least 12 pixels. */
+    private int thumbHeight() {
+        int height = rows * ROW_HEIGHT;
+        return Math.min(height, Math.max(12, height * rows / Math.max(1, listSize())));
     }
 
     /** How many rows the list has in its current mode. */
@@ -488,7 +597,9 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
-        activeTab().renderTooltip(graphics, rowAt(mouseX, mouseY), mouseX, mouseY);
+        if (!sellBox.renderSlotTooltip(graphics, mouseX, mouseY)) {
+            activeTab().renderTooltip(graphics, rowAt(mouseX, mouseY), mouseX, mouseY);
+        }
     }
 
     @Override
@@ -501,8 +612,11 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         graphics.fill(x + MARGIN, y + TAB_Y + TAB_HEIGHT, x + imageWidth - MARGIN, y + TAB_Y + TAB_HEIGHT + 1, PANEL_BORDER);
         ScreenTab open = activeTab();
         open.renderList(graphics, x, y, mouseX, mouseY);
-        renderScrollbar(graphics, x, y);
+        if (mode != Mode.SELL) {
+            renderScrollbar(graphics, x, y);
+        }
         open.renderPanel(graphics, x, y, mouseX, mouseY);
+        sellBox.render(graphics, mouseX, mouseY);
     }
 
     /** An item with its count and durability bar. */
@@ -538,7 +652,7 @@ public final class MarketScreen extends AbstractContainerScreen<MarketMenu> {
         int height = rows * ROW_HEIGHT;
         graphics.fill(left, top, left + SCROLLBAR_WIDTH, top + height, 0x40000000);
         if (maxScroll() > 0) {
-            int thumb = Math.max(12, height * rows / listSize());
+            int thumb = thumbHeight();
             int thumbY = top + (height - thumb) * scroll / maxScroll();
             graphics.fill(left, thumbY, left + SCROLLBAR_WIDTH, thumbY + thumb, 0xFFA0A0A8);
         }

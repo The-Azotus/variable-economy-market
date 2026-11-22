@@ -286,6 +286,10 @@ final class AdminCatalogCommands {
             Map<String, List<FieldSource>> sources = MarketCatalog.INSTANCE.sources(item);
             Optional<ItemClasses.ItemClass> itemClass = listed.get().itemClass().flatMap(ItemClasses::get);
             INFO_FIELDS.forEach(field -> lines.add("  " + describeField(field, values, inputs, sources.get(field), itemClass)));
+            long stored = MarketStockData.get(server).getStock(id);
+            lines.add(listed.get().unlimitedStock()
+                    ? "  Stock: unlimited (stored %d, used if it becomes finite)".formatted(stored)
+                    : "  Stock: " + stored);
         } else {
             lines.add(id + " is not listed");
             lines.add("  Catalog files: " + MarketCatalog.INSTANCE.fileEntry(item).map(AdminCatalogCommands::describe).orElse("not listed"));

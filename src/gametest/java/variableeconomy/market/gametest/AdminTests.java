@@ -430,4 +430,49 @@ public final class AdminTests {
         helper.assertTrue(MarketCatalog.INSTANCE.get(Items.BIRCH_LOG).isEmpty(), "reverting the rule unlists birch logs again");
         helper.succeed();
     }
+
+    @GameTest(template = EMPTY)
+    public static void marketStockListsOnlyItemsInStock(GameTestHelper helper) {
+        MarketFixture f = new MarketFixture(helper);
+        long ironBefore = f.stock(Items.IRON_INGOT);
+        long diamondBefore = f.stock(Items.DIAMOND);
+        f.setStock(Items.IRON_INGOT, 4321);
+        f.setStock(Items.DIAMOND, 0);
+        try {
+            List<String> output = runCommand(helper, "market stock");
+            helper.assertTrue(output.stream().anyMatch(line -> line.contains("4,321")), "iron is listed with its stock: " + output);
+            helper.assertTrue(output.stream().noneMatch(line -> line.toLowerCase(java.util.Locale.ROOT).contains("diamond")),
+                    "an item with none in stock isn't listed: " + output);
+            helper.assertTrue(output.stream().noneMatch(line -> line.toLowerCase(java.util.Locale.ROOT).contains("cobblestone")),
+                    "nor is an unlimited one: " + output);
+            helper.assertTrue(output.stream().noneMatch(line -> line.contains("stored")), "no internal stock details: " + output);
+        } finally {
+            f.setStock(Items.IRON_INGOT, ironBefore);
+            f.setStock(Items.DIAMOND, diamondBefore);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public static void aConfigChangeUpdatesPricesAtOnce(GameTestHelper helper) {
+        if (!MarketConfig.SPEC.isLoaded()) {
+            helper.succeed();
+            return;
+        }
+        double before = MarketConfig.SELL_IMPACT.get();
+        double changed = before == 0.001 ? 0.002 : 0.001;
+        MarketConfig.SELL_IMPACT.set(changed);
+        try {
+            List<net.neoforged.bus.api.Event> events = marketEventsDuring(() -> MarketModule.configChanged(helper.getLevel().getServer()));
+            helper.assertTrue(events.stream().anyMatch(e -> e instanceof variableeconomy.market.api.event.CatalogReloadedEvent),
+                    "add-ons hear that prices may have changed");
+            MarketFixture f = new MarketFixture(helper);
+            helper.assertValueEqual(f.quote(Items.IRON_INGOT).inputs().sellImpact(), changed,
+                    "an item without its own sell_impact uses the new default");
+        } finally {
+            MarketConfig.SELL_IMPACT.set(before);
+            MarketModule.configChanged(helper.getLevel().getServer());
+        }
+        helper.succeed();
+    }
 }
