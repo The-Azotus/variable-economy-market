@@ -398,7 +398,7 @@ Its prices ship in its jar at `data/questcoins/market/questcoins.json`, as in [P
 
 The market's API changes. Core's are in [core's add-on guide](https://github.com/The-Azotus/variable-economy-core/blob/main/docs/api.md).
 
-- **0.6.2 (unreleased):** requires core 0.6.3 or a later 0.6.x.
+- **0.6.2 (2026-11-23):** requires core 0.6.3 or a later 0.6.x.
   - A dead player can't trade: `sell` and `buy` answer `NOT_ALLOWED` and change nothing.
   - `CatalogReloadedEvent` is also posted when the market's server config file changes while the server runs, since its pricing defaults apply to every item that doesn't set its own.
   - Docs only: `TradeResult.total`'s javadoc now lists every refusal that carries the would-be total; the code is unchanged.
