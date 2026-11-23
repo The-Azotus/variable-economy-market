@@ -29,7 +29,7 @@ Each mod has its own block, screen, config file and commands. If a mod isn't ins
 
 ## Requirements and installation
 
-- [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) **0.6.2** or a later 0.6.x (up to, but not including, 0.7).
+- [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) **0.6.3** or a later 0.6.x (up to, but not including, 0.7).
 - Minecraft 1.21.1 with NeoForge 21.1.228 or newer, and Java 21.
 - Optional: [Create](https://modrinth.com/mod/create) 6.0.10 or a later 6.0.x. With it, the market's price suggestions read Create's machine recipes more closely.
 - Core's own optional mods work with the market too: with [ProgressiveStages](https://modrinth.com/mod/progressivestages), items a player hasn't unlocked are hidden from them in the market; FTB Teams parties and named accounts can trade through a shared account.

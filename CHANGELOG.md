@@ -4,7 +4,7 @@ What changed in each release of the market add-on, for players and server admins
 
 ## Unreleased
 
-**Install with core 0.6.2 or a later 0.6.x.** The market's network protocol changed: the server and every client need this version.
+**Install with core 0.6.3 or a later 0.6.x.** The market's network protocol changed: the server and every client need this version.
 
 - **The Selling box.** The market screen shows your inventory and a Selling box along the bottom. Click items to put them in the box (right-click for one, Shift-click for every copy), see what they're worth, and sell them all with one click. The items stay in your inventory until you sell, so closing the screen never loses anything. On a small window the box is a third view of the list, after Items and My trades.
 - **No more "price changed" when the price moves your way.** A trade from the screen goes through if it pays at least, or costs at most, what the button showed. Only a price that moved against you asks you to confirm again.

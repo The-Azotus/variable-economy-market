@@ -10,7 +10,7 @@ Java 21 and NeoForge 21.1 for Minecraft 1.21.1. Gradle's toolchain finds or down
 
 **Core.** The market builds against core. `core_source` in `gradle.properties` says where core comes from:
 
-- `curseforge` (the default): the released core that `core_curseforge_project` and `core_curseforge_file` name, through [CurseMaven](https://www.cursemaven.com/); for example, core 0.6.1 is `curse.maven:variable-economy-1818087:9710072`. This mod requires core 0.6.2 or later, so until that core's file is set here, build with `-Pcore_source=local`.
+- `curseforge` (the default): the released core that `core_curseforge_project` and `core_curseforge_file` name, through [CurseMaven](https://www.cursemaven.com/); for example, core 0.6.1 is `curse.maven:variable-economy-1818087:9710072`. This mod requires core 0.6.3 or later, so until that core's file is set here, build with `-Pcore_source=local`.
 - `local`: `variableeconomy:core:<core_version>` from your local Maven, for building against a core that isn't released. Clone [variable-economy-core](https://github.com/The-Azotus/variable-economy-core) and run `gradlew publishToMavenLocal` there first. `-Pcore_source=local` sets it for one build.
 
 **Tasks.**

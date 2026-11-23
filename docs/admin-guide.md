@@ -11,7 +11,7 @@ For what players see, read the [player guide](player-guide.md). For mods that bu
 
 ## Installing
 
-The market (`variable_economy_market-<version>.jar`, mod id `variable_economy_market`) is an add-on: it needs [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) (`variable_economy`) 0.6.2 or a later 0.6.x, so update them together. Install both on the server and on every client. It works with any of the other add-ons, [Contracts](https://github.com/The-Azotus/variable-economy-contracts) and [Exchange](https://github.com/The-Azotus/variable-economy-exchange), or with neither.
+The market (`variable_economy_market-<version>.jar`, mod id `variable_economy_market`) is an add-on: it needs [Variable Economy core](https://github.com/The-Azotus/variable-economy-core) (`variable_economy`) 0.6.3 or a later 0.6.x, so update them together. Install both on the server and on every client. It works with any of the other add-ons, [Contracts](https://github.com/The-Azotus/variable-economy-contracts) and [Exchange](https://github.com/The-Azotus/variable-economy-exchange), or with neither.
 
 The market adds the Market Terminal, catalogs and prices, price tooltips and `/market`. Its settings are in its own config file, `config/variable_economy_market-server.toml` ([Server config](#server-config)).
 
