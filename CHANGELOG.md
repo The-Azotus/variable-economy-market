@@ -2,7 +2,7 @@
 
 What changed in each release of the market add-on, for players and server admins. Mod and add-on authors: the API's changes are in the [add-on guide's changelog](docs/api.md#changelog). The changes to Variable Economy as a whole, core and the other add-ons, are in [core's changelog](https://github.com/The-Azotus/variable-economy-core/blob/main/CHANGELOG.md).
 
-## Unreleased
+## 0.6.2 (unreleased)
 
 **Install with core 0.6.3 or a later 0.6.x.** The market's network protocol changed: the server and every client need this version.
 
